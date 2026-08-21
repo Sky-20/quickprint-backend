@@ -7,11 +7,10 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# In-memory print queues
 PRINT_JOBS = []
 FILES_STORAGE = {}
 
-# Dukano ka Configuration: Yahan naye dukandar ka name, rates aur unka UPI ID daalein
+# Sabhi shop IDs lowercase me rakhi gayi hain
 SHOPS = {
     "default": {
         "name": "QuickPrint Catalyst",
@@ -19,15 +18,21 @@ SHOPS = {
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
-    "Ranjan_stationery": {
+    "gupta_stationery": {
+        "name": "Gupta Stationery & Xerox",
+        "upi_id": "guptaji@upi",  # Dukandar ka real UPI ID
+        "bw_rate": 2.0,
+        "color_rate": 10.0
+    },
+    "ranjan_stationery": {
         "name": "Ranjan Stationery & Xerox",
-        "upi_id": "guptaji@upi",  # Dukandar ka asli UPI ID
+        "upi_id": "ranjan@upi",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
     "sharma_cyber": {
         "name": "Sharma Cyber Cafe",
-        "upi_id": "sharmacyber@ybl",  # Dukandar ka asli UPI ID
+        "upi_id": "sharmacyber@ybl",
         "bw_rate": 3.0,
         "color_rate": 8.0
     }
@@ -39,11 +44,11 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Document Printing</title>
+    <title>{{ shop_data.name }} - Self Print</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
-        h2 { margin: 0 0 4px 0; color: #111; }
+        h2 { margin: 0 0 4px 0; color: #111; font-size: 22px; }
         p.subtitle { color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }
         .upload-box { border: 2px dashed #2563eb; border-radius: 12px; padding: 24px; cursor: pointer; background: #eff6ff; margin-bottom: 20px; }
         .form-row { display: flex; gap: 12px; margin-bottom: 16px; }
@@ -63,7 +68,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card" id="upload-card">
-        <h2 id="shop-name">QuickPrint Spot</h2>
+        <h2 id="shop-name">{{ shop_data.name }}</h2>
         <p class="subtitle">Direct UPI Pay & Instant Print</p>
 
         <div class="upload-box" onclick="document.getElementById('file-input').click()">
@@ -75,8 +80,8 @@ HTML_TEMPLATE = """
             <div class="form-group">
                 <label>Color Mode</label>
                 <select id="color-mode" onchange="calculateTotal()">
-                    <option value="bw">B & W</option>
-                    <option value="color">Color</option>
+                    <option value="bw">B & W (₹{{ "%.2f"|format(shop_data.bw_rate) }}/page)</option>
+                    <option value="color">Color (₹{{ "%.2f"|format(shop_data.color_rate) }}/page)</option>
                 </select>
             </div>
             <div class="form-group">
@@ -87,8 +92,8 @@ HTML_TEMPLATE = """
 
         <div class="bill-box">
             <div class="bill-row"><span>Copies:</span><span id="bill-copies">1</span></div>
-            <div class="bill-row"><span>Rate per Page:</span><span id="bill-rate">₹2.00</span></div>
-            <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹2.00</span></div>
+            <div class="bill-row"><span>Rate per Page:</span><span id="bill-rate">₹{{ "%.2f"|format(shop_data.bw_rate) }}</span></div>
+            <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹{{ "%.2f"|format(shop_data.bw_rate) }}</span></div>
         </div>
 
         <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Print</button>
@@ -112,20 +117,14 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const shopId = urlParams.get('shop') || 'default';
-        let shopData = { name: "QuickPrint Spot", upi_id: "test@upi", bw_rate: 2.0, color_rate: 10.0 };
+        const shopId = "{{ shop_id }}";
+        const shopData = {
+            name: "{{ shop_data.name }}",
+            upi_id: "{{ shop_data.upi_id }}",
+            bw_rate: parseFloat("{{ shop_data.bw_rate }}"),
+            color_rate: parseFloat("{{ shop_data.color_rate }}")
+        };
         let selectedFile = null;
-
-        fetch(`/api/shop-info?shop=${shopId}`)
-            .then(res => res.json())
-            .then(data => {
-                shopData = data;
-                document.getElementById('shop-name').innerText = data.name;
-                document.querySelector('#color-mode option[value="bw"]').innerText = `B & W (₹${data.bw_rate}/page)`;
-                document.querySelector('#color-mode option[value="color"]').innerText = `Color (₹${data.color_rate}/page)`;
-                calculateTotal();
-            });
 
         function handleFile(input) {
             if (input.files && input.files[0]) {
@@ -184,16 +183,18 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def home():
-    return render_template_string(HTML_TEMPLATE)
+    shop_param = request.args.get('shop', 'default').lower()
+    shop_info = SHOPS.get(shop_param, SHOPS['default'])
+    return render_template_string(HTML_TEMPLATE, shop_id=shop_param, shop_data=shop_info)
 
 @app.route('/api/shop-info')
 def get_shop_info():
-    shop_id = request.args.get('shop', 'default')
-    return jsonify(SHOPS.get(shop_id, SHOPS['default']))
+    shop_param = request.args.get('shop', 'default').lower()
+    return jsonify(SHOPS.get(shop_param, SHOPS['default']))
 
 @app.route('/api/submit-job', methods=['POST'])
 def submit_job():
-    shop_id = request.form.get('shop_id', 'default')
+    shop_id = request.form.get('shop_id', 'default').lower()
     color_mode = request.form.get('color_mode', 'bw')
     copies = int(request.form.get('copies', 1))
     amount = float(request.form.get('amount', 2.0))
@@ -221,7 +222,7 @@ def submit_job():
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
-    shop_id = request.args.get('shop_id', 'default')
+    shop_id = request.args.get('shop_id', 'default').lower()
     jobs = [j for j in PRINT_JOBS if j['shop_id'] == shop_id and j['status'] == 'ready_to_print']
     return jsonify(jobs)
 
