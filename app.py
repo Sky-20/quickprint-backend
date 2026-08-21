@@ -58,6 +58,7 @@ HTML_TEMPLATE = """
         #status-card { display: none; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .creator-badge { margin-top: 22px; padding-top: 12px; border-top: 1px dashed #cbd5e1; font-size: 12px; color: #64748b; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -91,6 +92,11 @@ HTML_TEMPLATE = """
         </div>
 
         <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Print</button>
+
+        <div class="creator-badge">
+            Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
+            <span style="font-size: 10px; color: #94a3b8; letter-spacing: 0.5px;">AUTONOMOUS PRINT CLOUD ENGINE</span>
+        </div>
     </div>
 
     <div class="card" id="status-card">
@@ -98,6 +104,10 @@ HTML_TEMPLATE = """
         <h2>Sending to Printer...</h2>
         <p style="color: #64748b; font-size: 14px;">Aapka document print queue me bhej diya gaya hai. Dukandar ke printer se print nikal raha hai.</p>
         <button class="btn" onclick="location.reload()" style="background: #111; margin-top: 15px;">Print Another File</button>
+
+        <div class="creator-badge">
+            Engineered & Built by <b style="color: #0f172a;">Akash Verma</b>
+        </div>
     </div>
 
     <script>
@@ -152,19 +162,13 @@ HTML_TEMPLATE = """
             formData.append("copies", document.getElementById('copies').value);
             formData.append("amount", total);
 
-            // Upload document to server queue
             const res = await fetch("/api/submit-job", { method: "POST", body: formData });
             const data = await res.json();
 
             if (data.status === "success") {
-                // Construct standard UPI deep link to open GPay/PhonePe/Paytm
                 const upiLink = `upi://pay?pa=${shopData.upi_id}&pn=${encodeURIComponent(shopData.name)}&am=${total}&cu=INR&tn=Printout_${selectedFile.name.substring(0,10)}`;
-                
-                // Show status screen
                 document.getElementById('upload-card').style.display = 'none';
                 document.getElementById('status-card').style.display = 'block';
-
-                // Redirect to UPI App
                 window.location.href = upiLink;
             } else {
                 alert("Error sending file to server.");
@@ -201,7 +205,6 @@ def submit_job():
         "content": file_bytes
     }
 
-    # Job is immediately ready for the local agent to pull and print
     PRINT_JOBS.append({
         "job_id": job_id,
         "shop_id": shop_id,
