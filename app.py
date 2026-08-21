@@ -19,8 +19,8 @@ SHOPS = {
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
-    "gupta_stationery": {
-        "name": "Gupta Stationery & Xerox",
+    "Ranjan_stationery": {
+        "name": "Ranjan Stationery & Xerox",
         "upi_id": "guptaji@upi",  # Dukandar ka asli UPI ID
         "bw_rate": 2.0,
         "color_rate": 10.0
