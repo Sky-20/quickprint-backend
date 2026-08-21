@@ -20,7 +20,7 @@ SHOPS = {
     },
     "gupta_stationery": {
         "name": "Gupta Stationery & Xerox",
-        "upi_id": "guptaji@upi",  # Dukandar ka real UPI ID
+        "upi_id": "verma.671@superyes",  # Dukandar ka real UPI ID
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
