@@ -101,12 +101,13 @@ HTML_TEMPLATE = """
 
     <div class="card" id="status-card">
         <div class="spinner"></div>
-        <h2>Sending to Printer...</h2>
-        <p style="color: #64748b; font-size: 14px;">Aapka document print queue me bhej diya gaya hai. Dukandar ke printer se print nikal raha hai.</p>
-        <button class="btn" onclick="location.reload()" style="background: #111; margin-top: 15px;">Print Another File</button>
+        <h2 style="color: #0f172a; margin-bottom: 6px;">Processing Print Job</h2>
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Document sent to counter printer. Please collect your printout.</p>
+        <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px;">Print Another Document</button>
 
         <div class="creator-badge">
-            Engineered & Built by <b style="color: #0f172a;">Akash Verma</b>
+            Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
+            <span style="font-size: 10px; color: #94a3b8; letter-spacing: 0.5px;">AUTONOMOUS PRINT CLOUD ENGINE</span>
         </div>
     </div>
 
