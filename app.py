@@ -1,33 +1,37 @@
 import os
 import uuid
-import razorpay
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+import datetime
+from flask import Flask, request, jsonify, render_template_string, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ORDERS_DIR = os.path.join(BASE_DIR, "orders")
-TEMP_DIR = os.path.join(BASE_DIR, "temp_uploads")
-os.makedirs(ORDERS_DIR, exist_ok=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
+# In-memory print queues
+PRINT_JOBS = []
+FILES_STORAGE = {}
 
-# Razorpay Credentials
-RAZORPAY_KEY_ID = "rzp_test_TS2Vq0G1hlAz2x"
-RAZORPAY_KEY_SECRET = "1Ur7xBBw5LyO1d2H3RqSWVho"
-client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-
-# Active Shops Database
-SHOPS_DB = {
-    "shop_101": {
-        "name": "Print Catalyst Spot",
-        "is_active": True,
-        "rate_bw": 2,
-        "rate_color": 10
+# Dukano ka Configuration: Yahan naye dukandar ka name, rates aur unka UPI ID daalein
+SHOPS = {
+    "default": {
+        "name": "QuickPrint Catalyst",
+        "upi_id": "yourname@okhdfcbank",
+        "bw_rate": 2.0,
+        "color_rate": 10.0
+    },
+    "gupta_stationery": {
+        "name": "Gupta Stationery & Xerox",
+        "upi_id": "guptaji@upi",  # Dukandar ka asli UPI ID
+        "bw_rate": 2.0,
+        "color_rate": 10.0
+    },
+    "sharma_cyber": {
+        "name": "Sharma Cyber Cafe",
+        "upi_id": "sharmacyber@ybl",  # Dukandar ka asli UPI ID
+        "bw_rate": 3.0,
+        "color_rate": 8.0
     }
 }
-PRINT_QUEUE = {}
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -35,194 +39,137 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ shop.name }}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <title>Smart Document Printing</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
+        h2 { margin: 0 0 4px 0; color: #111; }
+        p.subtitle { color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }
+        .upload-box { border: 2px dashed #2563eb; border-radius: 12px; padding: 24px; cursor: pointer; background: #eff6ff; margin-bottom: 20px; }
+        .form-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .form-group { flex: 1; text-align: left; }
+        label { font-size: 13px; color: #333; font-weight: 500; display: block; margin-bottom: 6px; }
+        select, input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; box-sizing: border-box; }
+        .bill-box { background: #fafafa; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; text-align: left; }
+        .bill-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; border-top: 1px solid #ddd; padding-top: 6px; }
+        .btn { background: #2563eb; color: white; border: none; border-radius: 8px; width: 100%; padding: 14px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .btn:disabled { background: #93c5fd; }
+        #status-card { display: none; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-gray-100">
-        <div class="text-center mb-6">
-            <h1 class="text-2xl font-bold text-gray-800">{{ shop.name }}</h1>
-            <p class="text-xs text-gray-500 mt-1">Smart Document Printing</p>
+<body>
+    <div class="card" id="upload-card">
+        <h2 id="shop-name">QuickPrint Spot</h2>
+        <p class="subtitle">Direct UPI Pay & Instant Print</p>
+
+        <div class="upload-box" onclick="document.getElementById('file-input').click()">
+            <span id="file-label">Tap to Select Document<br><small style="color: #666;">PDF, Images, TXT</small></span>
+            <input type="file" id="file-input" style="display: none;" onchange="handleFile(this)">
         </div>
 
-        <div id="stepUpload" class="space-y-4">
-            <div class="border-2 border-dashed border-blue-400 rounded-xl p-5 text-center bg-blue-50/50 hover:bg-blue-50 transition cursor-pointer">
-                <input type="file" id="docFile" accept=".pdf,.txt,.png,.jpg,.jpeg" required class="hidden" onchange="handleFileSelect()">
-                <label for="docFile" class="cursor-pointer block">
-                    <svg class="w-10 h-10 mx-auto text-blue-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                    </svg>
-                    <span id="fileLabel" class="text-sm font-semibold text-blue-600">Tap to Select Document</span>
-                    <p id="pageInfo" class="text-xs text-gray-500 mt-1">PDF, Images, TXT</p>
-                </label>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Color Mode</label>
+                <select id="color-mode" onchange="calculateTotal()">
+                    <option value="bw">B & W</option>
+                    <option value="color">Color</option>
+                </select>
             </div>
-
-            <div class="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                    <label class="block font-medium text-gray-700 mb-1">Color Mode</label>
-                    <select id="colorMode" class="w-full border rounded-lg p-2.5 bg-gray-50 focus:ring-2 focus:ring-blue-500">
-                        <option value="bw">B & W (₹{{ shop.rate_bw }}/page)</option>
-                        <option value="color">Color (₹{{ shop.rate_color }}/page)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-medium text-gray-700 mb-1">Copies</label>
-                    <input type="number" id="copies" value="1" min="1" max="50" class="w-full border rounded-lg p-2.5 bg-gray-50">
-                </div>
+            <div class="form-group">
+                <label>Copies</label>
+                <input type="number" id="copies" value="1" min="1" onchange="calculateTotal()">
             </div>
-
-            <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-200 text-xs space-y-1 text-gray-600">
-                <div class="flex justify-between">
-                    <span>Total Pages:</span>
-                    <span id="summaryPages" class="font-semibold text-gray-800">1</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Rate per Page:</span>
-                    <span id="summaryRate" class="font-semibold text-gray-800">₹{{ shop.rate_bw }}.00</span>
-                </div>
-                <div class="border-t pt-1 flex justify-between text-sm font-bold text-gray-900">
-                    <span>Grand Total:</span>
-                    <span id="priceDisplay" class="text-blue-600 font-extrabold">₹{{ shop.rate_bw }}.00</span>
-                </div>
-            </div>
-
-            <button type="button" onclick="startPaymentFlow()" id="payBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-500/30 transition duration-200">
-                Proceed to Pay & Print
-            </button>
         </div>
 
-        <div id="statusMsg" class="mt-4 text-center text-sm font-medium hidden"></div>
+        <div class="bill-box">
+            <div class="bill-row"><span>Copies:</span><span id="bill-copies">1</span></div>
+            <div class="bill-row"><span>Rate per Page:</span><span id="bill-rate">₹2.00</span></div>
+            <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹2.00</span></div>
+        </div>
+
+        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Print</button>
+    </div>
+
+    <div class="card" id="status-card">
+        <div class="spinner"></div>
+        <h2>Sending to Printer...</h2>
+        <p style="color: #64748b; font-size: 14px;">Aapka document print queue me bhej diya gaya hai. Dukandar ke printer se print nikal raha hai.</p>
+        <button class="btn" onclick="location.reload()" style="background: #111; margin-top: 15px;">Print Another File</button>
     </div>
 
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-        const fileInput = document.getElementById('docFile');
-        const fileLabel = document.getElementById('fileLabel');
-        const pageInfo = document.getElementById('pageInfo');
-        const copiesInput = document.getElementById('copies');
-        const colorMode = document.getElementById('colorMode');
-        const summaryPages = document.getElementById('summaryPages');
-        const summaryRate = document.getElementById('summaryRate');
-        const priceDisplay = document.getElementById('priceDisplay');
-        const payBtn = document.getElementById('payBtn');
-        const statusMsg = document.getElementById('statusMsg');
+        const urlParams = new URLSearchParams(window.location.search);
+        const shopId = urlParams.get('shop') || 'default';
+        let shopData = { name: "QuickPrint Spot", upi_id: "test@upi", bw_rate: 2.0, color_rate: 10.0 };
+        let selectedFile = null;
 
-        const rateBW = {{ shop.rate_bw }};
-        const rateColor = {{ shop.rate_color }};
-        const shopId = "{{ shop_id }}";
+        fetch(`/api/shop-info?shop=${shopId}`)
+            .then(res => res.json())
+            .then(data => {
+                shopData = data;
+                document.getElementById('shop-name').innerText = data.name;
+                document.querySelector('#color-mode option[value="bw"]').innerText = `B & W (₹${data.bw_rate}/page)`;
+                document.querySelector('#color-mode option[value="color"]').innerText = `Color (₹${data.color_rate}/page)`;
+                calculateTotal();
+            });
 
-        let detectedPages = 1;
-        let currentTotal = rateBW;
-
-        async function handleFileSelect() {
-            if (!fileInput.files.length) return;
-            const file = fileInput.files[0];
-            fileLabel.innerText = file.name;
-
-            if (file.type === 'application/pdf') {
-                pageInfo.innerText = "Analyzing pages...";
-                try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                    detectedPages = pdf.numPages;
-                    pageInfo.innerText = `Detected ${detectedPages} Page(s)`;
-                } catch (e) {
-                    detectedPages = 1;
-                    pageInfo.innerText = "PDF ready";
-                }
-            } else {
-                detectedPages = 1;
-                pageInfo.innerText = "Single Page Image/Doc";
+        function handleFile(input) {
+            if (input.files && input.files[0]) {
+                selectedFile = input.files[0];
+                document.getElementById('file-label').innerText = selectedFile.name;
             }
-            calculatePrice();
         }
 
-        function calculatePrice() {
-            const rate = colorMode.value === 'bw' ? rateBW : rateColor;
-            const copies = parseInt(copiesInput.value) || 1;
-            currentTotal = detectedPages * copies * rate;
-
-            summaryPages.innerText = `${detectedPages} page(s) × ${copies} cop(ies)`;
-            summaryRate.innerText = `₹${rate}.00`;
-            priceDisplay.innerText = `₹${currentTotal.toFixed(2)}`;
+        function calculateTotal() {
+            const mode = document.getElementById('color-mode').value;
+            const copies = parseInt(document.getElementById('copies').value) || 1;
+            const rate = (mode === 'color') ? shopData.color_rate : shopData.bw_rate;
+            const total = rate * copies;
+            document.getElementById('bill-copies').innerText = copies;
+            document.getElementById('bill-rate').innerText = `₹${rate.toFixed(2)}`;
+            document.getElementById('bill-total').innerText = `₹${total.toFixed(2)}`;
+            return total;
         }
 
-        copiesInput.addEventListener('input', calculatePrice);
-        colorMode.addEventListener('change', calculatePrice);
-
-        async function startPaymentFlow() {
-            if (!fileInput.files.length) {
-                alert("Please select a file to print first!");
+        async function startPayAndPrint() {
+            if (!selectedFile) {
+                alert("Please select a document first.");
                 return;
             }
 
-            payBtn.disabled = true;
-            payBtn.innerText = "Creating Order...";
-            statusMsg.className = "mt-4 text-center text-sm font-medium text-blue-600";
-            statusMsg.innerText = "Preparing payment...";
-            statusMsg.classList.remove('hidden');
+            const btn = document.getElementById('pay-btn');
+            btn.disabled = true;
+            btn.innerText = "Processing...";
 
+            const total = calculateTotal();
             const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('amount', currentTotal);
-            formData.append('shop_id', shopId);
+            formData.append("file", selectedFile);
+            formData.append("shop_id", shopId);
+            formData.append("color_mode", document.getElementById('color-mode').value);
+            formData.append("copies", document.getElementById('copies').value);
+            formData.append("amount", total);
 
-            try {
-                const res = await fetch('/create-order', { method: 'POST', body: formData });
-                const orderData = await res.json();
-                if (orderData.error) throw new Error(orderData.error);
+            // Upload document to server queue
+            const res = await fetch("/api/submit-job", { method: "POST", body: formData });
+            const data = await res.json();
 
-                const options = {
-                    "key": orderData.razorpay_key,
-                    "amount": orderData.amount,
-                    "currency": "INR",
-                    "name": "{{ shop.name }}",
-                    "description": "Document Print Charge",
-                    "order_id": orderData.order_id,
-                    "handler": async function (response) {
-                        statusMsg.innerText = "Verifying payment...";
-                        const verifyRes = await fetch('/verify-payment', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                razorpay_order_id: response.razorpay_order_id,
-                                razorpay_payment_id: response.razorpay_payment_id,
-                                razorpay_signature: response.razorpay_signature,
-                                job_id: orderData.job_id,
-                                filename: orderData.filename,
-                                shop_id: shopId
-                            })
-                        });
+            if (data.status === "success") {
+                // Construct standard UPI deep link to open GPay/PhonePe/Paytm
+                const upiLink = `upi://pay?pa=${shopData.upi_id}&pn=${encodeURIComponent(shopData.name)}&am=${total}&cu=INR&tn=Printout_${selectedFile.name.substring(0,10)}`;
+                
+                // Show status screen
+                document.getElementById('upload-card').style.display = 'none';
+                document.getElementById('status-card').style.display = 'block';
 
-                        const verifyData = await verifyRes.json();
-                        if (verifyData.success) {
-                            statusMsg.className = "mt-4 text-center text-sm font-medium text-green-600";
-                            statusMsg.innerText = "✓ Payment Verified! Sent to printer.";
-                        } else {
-                            statusMsg.className = "mt-4 text-center text-sm font-medium text-red-600";
-                            statusMsg.innerText = "Payment verification failed.";
-                        }
-                        payBtn.disabled = false;
-                        payBtn.innerText = "Proceed to Pay & Print";
-                    },
-                    "modal": {
-                        "ondismiss": function() {
-                            payBtn.disabled = false;
-                            payBtn.innerText = "Proceed to Pay & Print";
-                            statusMsg.className = "mt-4 text-center text-sm font-medium text-gray-500";
-                            statusMsg.innerText = "Payment cancelled";
-                        }
-                    },
-                    "theme": { "color": "#2563eb" }
-                };
-                new Razorpay(options).open();
-            } catch (err) {
-                statusMsg.className = "mt-4 text-center text-sm font-medium text-red-600";
-                statusMsg.innerText = "Error: " + err.message;
-                payBtn.disabled = false;
-                payBtn.innerText = "Proceed to Pay & Print";
+                // Redirect to UPI App
+                window.location.href = upiLink;
+            } else {
+                alert("Error sending file to server.");
+                btn.disabled = false;
+                btn.innerText = "Pay via UPI & Print";
             }
         }
     </script>
@@ -232,102 +179,61 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def home():
-    shop_id = request.args.get('shop_id', 'shop_101')
-    shop = SHOPS_DB.get(shop_id)
-    if not shop or not shop.get("is_active"):
-        return "<h2 style='text-align:center;margin-top:50px;'>Print Point is currently unavailable.</h2>", 403
-    return render_template_string(HTML_TEMPLATE, shop=shop, shop_id=shop_id)
+    return render_template_string(HTML_TEMPLATE)
 
-@app.route('/create-order', methods=['POST'])
-def create_order():
-    try:
-        uploaded_file = request.files.get('file')
-        amount_str = request.form.get('amount', '2')
-        shop_id = request.form.get('shop_id', 'shop_101')
+@app.route('/api/shop-info')
+def get_shop_info():
+    shop_id = request.args.get('shop', 'default')
+    return jsonify(SHOPS.get(shop_id, SHOPS['default']))
 
-        if not uploaded_file:
-            return jsonify({'error': 'No file uploaded'}), 400
+@app.route('/api/submit-job', methods=['POST'])
+def submit_job():
+    shop_id = request.form.get('shop_id', 'default')
+    color_mode = request.form.get('color_mode', 'bw')
+    copies = int(request.form.get('copies', 1))
+    amount = float(request.form.get('amount', 2.0))
+    file = request.files.get('file')
 
-        job_id = str(uuid.uuid4())[:8]
-        filename = f"{job_id}_{uploaded_file.filename}"
-        temp_path = os.path.join(TEMP_DIR, filename)
-        uploaded_file.save(temp_path)
+    job_id = str(uuid.uuid4())
+    file_bytes = file.read()
+    FILES_STORAGE[job_id] = {
+        "filename": file.filename,
+        "content": file_bytes
+    }
 
-        amount_in_paise = int(float(amount_str) * 100)
-        razorpay_order = client.order.create({
-            "amount": amount_in_paise,
-            "currency": "INR",
-            "payment_capture": "1"
-        })
+    # Job is immediately ready for the local agent to pull and print
+    PRINT_JOBS.append({
+        "job_id": job_id,
+        "shop_id": shop_id,
+        "filename": file.filename,
+        "color_mode": color_mode,
+        "copies": copies,
+        "amount": amount,
+        "time": datetime.datetime.now().strftime("%I:%M %p"),
+        "status": "ready_to_print"
+    })
 
-        return jsonify({
-            'order_id': razorpay_order['id'],
-            'amount': amount_in_paise,
-            'job_id': job_id,
-            'filename': filename,
-            'razorpay_key': RAZORPAY_KEY_ID
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify({"status": "success", "job_id": job_id})
 
-@app.route('/verify-payment', methods=['POST'])
-def verify_payment():
-    data = request.get_json() or {}
-    shop_id = data.get('shop_id', 'shop_101')
-    job_id = data.get('job_id')
-    filename = data.get('filename')
+@app.route('/api/get-pending-jobs')
+def get_pending_jobs():
+    shop_id = request.args.get('shop_id', 'default')
+    jobs = [j for j in PRINT_JOBS if j['shop_id'] == shop_id and j['status'] == 'ready_to_print']
+    return jsonify(jobs)
 
-    temp_path = os.path.join(TEMP_DIR, filename)
-    final_path = os.path.join(ORDERS_DIR, filename)
+@app.route('/api/download-file/<job_id>')
+def download_file(job_id):
+    if job_id in FILES_STORAGE:
+        file_data = FILES_STORAGE[job_id]
+        return Response(file_data['content'], headers={"Content-Disposition": f"attachment; filename={file_data['filename']}"})
+    return "File Not Found", 404
 
-    try:
-        client.utility.verify_payment_signature({
-            'razorpay_order_id': data.get('razorpay_order_id'),
-            'razorpay_payment_id': data.get('razorpay_payment_id'),
-            'razorpay_signature': data.get('razorpay_signature')
-        })
-
-        if os.path.exists(temp_path):
-            os.rename(temp_path, final_path)
-
-        if shop_id not in PRINT_QUEUE:
-            PRINT_QUEUE[shop_id] = []
-
-        host_url = request.host_url.rstrip('/')
-        PRINT_QUEUE[shop_id].append({
-            "job_id": job_id,
-            "filename": filename,
-            "file_url": f"{host_url}/download-file/{filename}"
-        })
-
-        return jsonify({'success': True})
-    except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        return jsonify({'success': False, 'error': str(e)}), 400
-
-@app.route('/download-file/<filename>')
-def download_file(filename):
-    return send_from_directory(ORDERS_DIR, filename)
-
-@app.route('/api/get-pending-prints/<shop_id>', methods=['GET'])
-def get_pending_prints(shop_id):
-    jobs = PRINT_QUEUE.get(shop_id, [])
-    return jsonify({'jobs': jobs})
-
-@app.route('/api/complete-print/<shop_id>/<job_id>', methods=['POST'])
-def complete_print(shop_id, job_id):
-    if shop_id in PRINT_QUEUE:
-        PRINT_QUEUE[shop_id] = [j for j in PRINT_QUEUE[shop_id] if j['job_id'] != job_id]
-    
-    for f in os.listdir(ORDERS_DIR):
-        if f.startswith(job_id):
-            try:
-                os.remove(os.path.join(ORDERS_DIR, f))
-            except:
-                pass
-    return jsonify({'status': 'cleaned'})
+@app.route('/api/complete-job/<job_id>', methods=['POST'])
+def complete_job(job_id):
+    global PRINT_JOBS
+    PRINT_JOBS = [j for j in PRINT_JOBS if j['job_id'] != job_id]
+    FILES_STORAGE.pop(job_id, None)
+    return jsonify({"status": "completed"})
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=5000)
