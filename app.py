@@ -20,12 +20,12 @@ SHOPS = {
     },
     "gupta_stationery": {
         "name": "Gupta Stationery and Xerox",
-        "upi_id": "verma.671@superyes",  # Dukandar ka real UPI ID
+        "upi_id": "verma.671@superyes",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
     "ranjan_stationery": {
-        "name": "Ranjan Stationery & Xerox",
+        "name": "Ranjan Stationery and Xerox",
         "upi_id": "ranjan@upi",
         "bw_rate": 2.0,
         "color_rate": 10.0
@@ -166,9 +166,14 @@ HTML_TEMPLATE = """
             const data = await res.json();
 
             if (data.status === "success") {
-                const upiLink = `upi://pay?pa=${shopData.upi_id}&pn=${encodeURIComponent(shopData.name)}&am=${total}&cu=INR&tn=Printout_${selectedFile.name.substring(0,10)}`;
                 document.getElementById('upload-card').style.display = 'none';
                 document.getElementById('status-card').style.display = 'block';
+
+                const cleanName = encodeURIComponent(shopData.name.replace(/[^a-zA-Z0-9 ]/g, "").trim());
+                const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
+                const cleanAmount = total.toFixed(2);
+                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${cleanAmount}&cu=INR&tn=PrintDoc`;
+
                 window.location.href = upiLink;
             } else {
                 alert("Error sending file to server.");
