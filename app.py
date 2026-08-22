@@ -228,7 +228,7 @@ def refund():
 
 @app.route('/contact')
 def contact():
-    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> support@quickprint.local<br><b>Operated by:</b> Akash Verma</p>"
+    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> akashverma25274@gmail.com<br><b>Operated by:</b> Akash Verma</p>"
     return render_template_string(POLICY_TEMPLATE, title="Contact Us", content=content)
 
 @app.route('/api/shop-info')
