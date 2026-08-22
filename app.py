@@ -45,6 +45,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ shop_data.name }} - Self Print</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
@@ -69,7 +70,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="card" id="upload-card">
         <h2 id="shop-name">{{ shop_data.name }}</h2>
-        <p class="subtitle">Direct UPI Pay & Instant Print</p>
+        <p class="subtitle">Direct Online Pay & Instant Print</p>
 
         <div class="upload-box" onclick="document.getElementById('file-input').click()">
             <span id="file-label">Tap to Select Document<br><small style="color: #666;">PDF, Images, TXT</small></span>
@@ -96,7 +97,7 @@ HTML_TEMPLATE = """
             <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹{{ "%.2f"|format(shop_data.bw_rate) }}</span></div>
         </div>
 
-        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Print</button>
+        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay & Print</button>
 
         <div class="creator-badge">
             Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
@@ -113,8 +114,8 @@ HTML_TEMPLATE = """
 
     <div class="card" id="status-card">
         <div class="spinner"></div>
-        <h2 style="color: #0f172a; margin-bottom: 6px;">Processing Print Job</h2>
-        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Document sent to counter printer. Please collect your printout.</p>
+        <h2 style="color: #0f172a; margin-bottom: 6px;">Printing Document</h2>
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Payment verified. Document sent to counter printer.</p>
         <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px;">Print Another Document</button>
 
         <div class="creator-badge">
@@ -131,6 +132,7 @@ HTML_TEMPLATE = """
             bw_rate: parseFloat("{{ shop_data.bw_rate }}"),
             color_rate: parseFloat("{{ shop_data.color_rate }}")
         };
+        const rzpKey = "rzp_test_TS2Vq0G1hlAz2x";
         let selectedFile = null;
 
         function handleFile(input) {
@@ -169,23 +171,51 @@ HTML_TEMPLATE = """
             formData.append("copies", document.getElementById('copies').value);
             formData.append("amount", total);
 
-            const res = await fetch("/api/submit-job", { method: "POST", body: formData });
+            // Step 1: Upload file & create pending job
+            const res = await fetch("/api/initiate-job", { method: "POST", body: formData });
             const data = await res.json();
 
-            if (data.status === "success") {
-                document.getElementById('upload-card').style.display = 'none';
-                document.getElementById('status-card').style.display = 'block';
+            if (data.status === "initiated") {
+                const jobId = data.job_id;
 
-                const cleanName = encodeURIComponent(shopData.name.replace(/[^a-zA-Z0-9 ]/g, "").trim());
-                const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
-                const cleanAmount = total.toFixed(2);
-                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${cleanAmount}&cu=INR&tn=PrintDoc`;
+                // Step 2: Open Razorpay Checkout modal
+                const options = {
+                    "key": rzpKey,
+                    "amount": Math.round(total * 100), // Amount in paise
+                    "currency": "INR",
+                    "name": shopData.name,
+                    "description": "Instant Document Printout",
+                    "handler": async function (response) {
+                        // Step 3: Trigger Print ONLY after success
+                        const verifyRes = await fetch("/api/verify-and-print", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                job_id: jobId,
+                                razorpay_payment_id: response.razorpay_payment_id
+                            })
+                        });
+                        const verifyData = await verifyRes.json();
+                        if (verifyData.status === "success") {
+                            document.getElementById('upload-card').style.display = 'none';
+                            document.getElementById('status-card').style.display = 'block';
+                        }
+                    },
+                    "modal": {
+                        "ondismiss": function() {
+                            btn.disabled = false;
+                            btn.innerText = "Pay & Print";
+                        }
+                    },
+                    "theme": { "color": "#2563eb" }
+                };
 
-                window.location.href = upiLink;
+                const rzp = new Razorpay(options);
+                rzp.open();
             } else {
-                alert("Error sending file to server.");
+                alert("Error initializing upload.");
                 btn.disabled = false;
-                btn.innerText = "Pay via UPI & Print";
+                btn.innerText = "Pay & Print";
             }
         }
     </script>
@@ -228,16 +258,11 @@ def refund():
 
 @app.route('/contact')
 def contact():
-    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> akashverma25274@gmail.com<br><b>Operated by:</b> Akash Verma</p>"
+    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> support@quickprint.local<br><b>Operated by:</b> Akash Verma</p>"
     return render_template_string(POLICY_TEMPLATE, title="Contact Us", content=content)
 
-@app.route('/api/shop-info')
-def get_shop_info():
-    shop_param = request.args.get('shop', 'default').lower()
-    return jsonify(SHOPS.get(shop_param, SHOPS['default']))
-
-@app.route('/api/submit-job', methods=['POST'])
-def submit_job():
+@app.route('/api/initiate-job', methods=['POST'])
+def initiate_job():
     shop_id = request.form.get('shop_id', 'default').lower()
     color_mode = request.form.get('color_mode', 'bw')
     copies = int(request.form.get('copies', 1))
@@ -251,6 +276,7 @@ def submit_job():
         "content": file_bytes
     }
 
+    # Job is kept in pending state (will NOT print until payment verified)
     PRINT_JOBS.append({
         "job_id": job_id,
         "shop_id": shop_id,
@@ -259,10 +285,28 @@ def submit_job():
         "copies": copies,
         "amount": amount,
         "time": datetime.datetime.now().strftime("%I:%M %p"),
-        "status": "ready_to_print"
+        "status": "payment_pending"
     })
 
-    return jsonify({"status": "success", "job_id": job_id})
+    return jsonify({"status": "initiated", "job_id": job_id})
+
+@app.route('/api/verify-and-print', methods=['POST'])
+def verify_and_print():
+    data = request.get_json() or {}
+    job_id = data.get('job_id')
+    payment_id = data.get('razorpay_payment_id')
+
+    if not payment_id or not job_id:
+        return jsonify({"status": "failed", "error": "Invalid payment proof"}), 400
+
+    # Mark job as ready for the client printer
+    for job in PRINT_JOBS:
+        if job['job_id'] == job_id:
+            job['status'] = 'ready_to_print'
+            job['payment_id'] = payment_id
+            return jsonify({"status": "success"})
+
+    return jsonify({"status": "failed", "error": "Job not found"}), 404
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
