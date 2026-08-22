@@ -13,13 +13,13 @@ FILES_STORAGE = {}
 SHOPS = {
     "default": {
         "name": "QuickPrint Catalyst",
-        "upi_id": "yourname@okhdfcbank",
+        "upi_id": "akashverma25274-2@oksbi",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
     "gupta_stationery": {
         "name": "Gupta Stationery and Xerox",
-        "upi_id": "verma.671@superyes",
+        "upi_id": "akashverma25274-2@oksbi",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
