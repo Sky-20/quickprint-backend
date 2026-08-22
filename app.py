@@ -10,7 +10,6 @@ CORS(app)
 PRINT_JOBS = []
 FILES_STORAGE = {}
 
-# Sabhi shop IDs lowercase me rakhi gayi hain
 SHOPS = {
     "default": {
         "name": "QuickPrint Catalyst",
@@ -45,7 +44,6 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ shop_data.name }} - Self Print</title>
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
@@ -70,7 +68,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="card" id="upload-card">
         <h2 id="shop-name">{{ shop_data.name }}</h2>
-        <p class="subtitle">Direct Online Pay & Instant Print</p>
+        <p class="subtitle">Direct UPI Pay & Instant Print</p>
 
         <div class="upload-box" onclick="document.getElementById('file-input').click()">
             <span id="file-label">Tap to Select Document<br><small style="color: #666;">PDF, Images, TXT</small></span>
@@ -97,31 +95,19 @@ HTML_TEMPLATE = """
             <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹{{ "%.2f"|format(shop_data.bw_rate) }}</span></div>
         </div>
 
-        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay & Print</button>
+        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Request Print</button>
 
         <div class="creator-badge">
             Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
             <span style="font-size: 10px; color: #94a3b8; letter-spacing: 0.5px;">AUTONOMOUS PRINT CLOUD ENGINE</span>
-        </div>
-        
-        <div style="margin-top: 15px; font-size: 11px; color: #64748b;">
-            <a href="/terms" style="color: #64748b; text-decoration: none; margin: 0 5px;">Terms</a> |
-            <a href="/privacy" style="color: #64748b; text-decoration: none; margin: 0 5px;">Privacy</a> |
-            <a href="/refund" style="color: #64748b; text-decoration: none; margin: 0 5px;">Refunds</a> |
-            <a href="/contact" style="color: #64748b; text-decoration: none; margin: 0 5px;">Contact Us</a>
         </div>
     </div>
 
     <div class="card" id="status-card">
         <div class="spinner"></div>
-        <h2 style="color: #0f172a; margin-bottom: 6px;">Printing Document</h2>
-        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Payment verified. Document sent to counter printer.</p>
+        <h2 style="color: #0f172a; margin-bottom: 6px;">Processing at Counter</h2>
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Payment sent to shopkeeper. Please collect your document from the printer once confirmed.</p>
         <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px;">Print Another Document</button>
-
-        <div class="creator-badge">
-            Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
-            <span style="font-size: 10px; color: #94a3b8; letter-spacing: 0.5px;">AUTONOMOUS PRINT CLOUD ENGINE</span>
-        </div>
     </div>
 
     <script>
@@ -132,7 +118,6 @@ HTML_TEMPLATE = """
             bw_rate: parseFloat("{{ shop_data.bw_rate }}"),
             color_rate: parseFloat("{{ shop_data.color_rate }}")
         };
-        const rzpKey = "rzp_test_TS2Vq0G1hlAz2x";
         let selectedFile = null;
 
         function handleFile(input) {
@@ -161,7 +146,7 @@ HTML_TEMPLATE = """
 
             const btn = document.getElementById('pay-btn');
             btn.disabled = true;
-            btn.innerText = "Processing...";
+            btn.innerText = "Submitting...";
 
             const total = calculateTotal();
             const formData = new FormData();
@@ -171,66 +156,25 @@ HTML_TEMPLATE = """
             formData.append("copies", document.getElementById('copies').value);
             formData.append("amount", total);
 
-            // Step 1: Upload file & create pending job
-            const res = await fetch("/api/initiate-job", { method: "POST", body: formData });
+            const res = await fetch("/api/submit-job", { method: "POST", body: formData });
             const data = await res.json();
 
-            if (data.status === "initiated") {
-                const jobId = data.job_id;
+            if (data.status === "success") {
+                document.getElementById('upload-card').style.display = 'none';
+                document.getElementById('status-card').style.display = 'block';
 
-                // Step 2: Open Razorpay Checkout modal
-                const options = {
-                    "key": rzpKey,
-                    "amount": Math.round(total * 100), // Amount in paise
-                    "currency": "INR",
-                    "name": shopData.name,
-                    "description": "Instant Document Printout",
-                    "handler": async function (response) {
-                        // Step 3: Trigger Print ONLY after success
-                        const verifyRes = await fetch("/api/verify-and-print", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                job_id: jobId,
-                                razorpay_payment_id: response.razorpay_payment_id
-                            })
-                        });
-                        const verifyData = await verifyRes.json();
-                        if (verifyData.status === "success") {
-                            document.getElementById('upload-card').style.display = 'none';
-                            document.getElementById('status-card').style.display = 'block';
-                        }
-                    },
-                    "modal": {
-                        "ondismiss": function() {
-                            btn.disabled = false;
-                            btn.innerText = "Pay & Print";
-                        }
-                    },
-                    "theme": { "color": "#2563eb" }
-                };
+                const cleanName = encodeURIComponent(shopData.name.replace(/[^a-zA-Z0-9 ]/g, "").trim());
+                const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
+                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR&tn=PrintDoc`;
 
-                const rzp = new Razorpay(options);
-                rzp.open();
+                window.location.href = upiLink;
             } else {
-                alert("Error initializing upload.");
+                alert("Error sending file to server.");
                 btn.disabled = false;
-                btn.innerText = "Pay & Print";
+                btn.innerText = "Pay via UPI & Request Print";
             }
         }
     </script>
-</body>
-</html>
-"""
-
-POLICY_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head><title>{{ title }} - QuickPrint</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}</style></head>
-<body>
-    <h2>{{ title }}</h2>
-    <div>{{ content | safe }}</div>
-    <p><a href="/">← Back to Home</a></p>
 </body>
 </html>
 """
@@ -241,28 +185,8 @@ def home():
     shop_info = SHOPS.get(shop_param, SHOPS['default'])
     return render_template_string(HTML_TEMPLATE, shop_id=shop_param, shop_data=shop_info)
 
-@app.route('/terms')
-def terms():
-    content = "<p>QuickPrint enables instant local printing. Users are responsible for uploaded document content. Service availability depends on local shop hardware status.</p>"
-    return render_template_string(POLICY_TEMPLATE, title="Terms and Conditions", content=content)
-
-@app.route('/privacy')
-def privacy():
-    content = "<p>We do not store your documents permanently. Files are stored temporarily in memory only to complete the print job and are purged automatically.</p>"
-    return render_template_string(POLICY_TEMPLATE, title="Privacy Policy", content=content)
-
-@app.route('/refund')
-def refund():
-    content = "<p>If a print job fails due to a machine paper jam or hardware offline error after successful payment, a 100% refund is initiated within 24 hours to the original payment source.</p>"
-    return render_template_string(POLICY_TEMPLATE, title="Cancellation & Refund Policy", content=content)
-
-@app.route('/contact')
-def contact():
-    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> support@quickprint.local<br><b>Operated by:</b> Akash Verma</p>"
-    return render_template_string(POLICY_TEMPLATE, title="Contact Us", content=content)
-
-@app.route('/api/initiate-job', methods=['POST'])
-def initiate_job():
+@app.route('/api/submit-job', methods=['POST'])
+def submit_job():
     shop_id = request.form.get('shop_id', 'default').lower()
     color_mode = request.form.get('color_mode', 'bw')
     copies = int(request.form.get('copies', 1))
@@ -270,13 +194,11 @@ def initiate_job():
     file = request.files.get('file')
 
     job_id = str(uuid.uuid4())
-    file_bytes = file.read()
     FILES_STORAGE[job_id] = {
         "filename": file.filename,
-        "content": file_bytes
+        "content": file.read()
     }
 
-    # Job is kept in pending state (will NOT print until payment verified)
     PRINT_JOBS.append({
         "job_id": job_id,
         "shop_id": shop_id,
@@ -285,33 +207,15 @@ def initiate_job():
         "copies": copies,
         "amount": amount,
         "time": datetime.datetime.now().strftime("%I:%M %p"),
-        "status": "payment_pending"
+        "status": "waiting_approval"
     })
 
-    return jsonify({"status": "initiated", "job_id": job_id})
-
-@app.route('/api/verify-and-print', methods=['POST'])
-def verify_and_print():
-    data = request.get_json() or {}
-    job_id = data.get('job_id')
-    payment_id = data.get('razorpay_payment_id')
-
-    if not payment_id or not job_id:
-        return jsonify({"status": "failed", "error": "Invalid payment proof"}), 400
-
-    # Mark job as ready for the client printer
-    for job in PRINT_JOBS:
-        if job['job_id'] == job_id:
-            job['status'] = 'ready_to_print'
-            job['payment_id'] = payment_id
-            return jsonify({"status": "success"})
-
-    return jsonify({"status": "failed", "error": "Job not found"}), 404
+    return jsonify({"status": "success", "job_id": job_id})
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
     shop_id = request.args.get('shop_id', 'default').lower()
-    jobs = [j for j in PRINT_JOBS if j['shop_id'] == shop_id and j['status'] == 'ready_to_print']
+    jobs = [j for j in PRINT_JOBS if j['shop_id'] == shop_id and j['status'] == 'waiting_approval']
     return jsonify(jobs)
 
 @app.route('/api/download-file/<job_id>')
