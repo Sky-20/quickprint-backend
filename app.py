@@ -102,6 +102,13 @@ HTML_TEMPLATE = """
             Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
             <span style="font-size: 10px; color: #94a3b8; letter-spacing: 0.5px;">AUTONOMOUS PRINT CLOUD ENGINE</span>
         </div>
+        
+        <div style="margin-top: 15px; font-size: 11px; color: #64748b;">
+            <a href="/terms" style="color: #64748b; text-decoration: none; margin: 0 5px;">Terms</a> |
+            <a href="/privacy" style="color: #64748b; text-decoration: none; margin: 0 5px;">Privacy</a> |
+            <a href="/refund" style="color: #64748b; text-decoration: none; margin: 0 5px;">Refunds</a> |
+            <a href="/contact" style="color: #64748b; text-decoration: none; margin: 0 5px;">Contact Us</a>
+        </div>
     </div>
 
     <div class="card" id="status-card">
@@ -186,11 +193,43 @@ HTML_TEMPLATE = """
 </html>
 """
 
+POLICY_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head><title>{{ title }} - QuickPrint</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}</style></head>
+<body>
+    <h2>{{ title }}</h2>
+    <div>{{ content | safe }}</div>
+    <p><a href="/">← Back to Home</a></p>
+</body>
+</html>
+"""
+
 @app.route('/')
 def home():
     shop_param = request.args.get('shop', 'default').lower()
     shop_info = SHOPS.get(shop_param, SHOPS['default'])
     return render_template_string(HTML_TEMPLATE, shop_id=shop_param, shop_data=shop_info)
+
+@app.route('/terms')
+def terms():
+    content = "<p>QuickPrint enables instant local printing. Users are responsible for uploaded document content. Service availability depends on local shop hardware status.</p>"
+    return render_template_string(POLICY_TEMPLATE, title="Terms and Conditions", content=content)
+
+@app.route('/privacy')
+def privacy():
+    content = "<p>We do not store your documents permanently. Files are stored temporarily in memory only to complete the print job and are purged automatically.</p>"
+    return render_template_string(POLICY_TEMPLATE, title="Privacy Policy", content=content)
+
+@app.route('/refund')
+def refund():
+    content = "<p>If a print job fails due to a machine paper jam or hardware offline error after successful payment, a 100% refund is initiated within 24 hours to the original payment source.</p>"
+    return render_template_string(POLICY_TEMPLATE, title="Cancellation & Refund Policy", content=content)
+
+@app.route('/contact')
+def contact():
+    content = "<p>For issues or support queries, contact us at:<br><b>Email:</b> support@quickprint.local<br><b>Operated by:</b> Akash Verma</p>"
+    return render_template_string(POLICY_TEMPLATE, title="Contact Us", content=content)
 
 @app.route('/api/shop-info')
 def get_shop_info():
