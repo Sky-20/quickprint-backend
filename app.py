@@ -25,7 +25,7 @@ SHOPS = {
     },
     "ranjan_stationery": {
         "name": "Ranjan Stationery and Xerox",
-        "upi_id": "ranjan@upi",
+        "upi_id": "Q159163070@ybl",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
