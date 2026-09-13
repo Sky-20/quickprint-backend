@@ -163,9 +163,9 @@ HTML_TEMPLATE = """
 
                 const cleanName = encodeURIComponent(shopData.name.trim());
                 const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
-                const txnRef = "QP" + Date.now().toString().slice(-8);
 
-                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&tr=${txnRef}&am=${total.toFixed(2)}&cu=INR`;
+                // Standard NPCI minimalist deep link (No custom reference or note interference)
+                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR`;
                 window.location.href = upiLink;
             } else {
                 alert("Error sending file to server.");
@@ -240,4 +240,3 @@ def complete_job(job_id):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-    
