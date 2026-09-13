@@ -10,14 +10,8 @@ FILES_STORAGE = {}
 
 SHOPS = {
     "default": {
-        "name": "QuickPrint Catalyst",
-        "upi_id": "akash@okupi",
-        "bw_rate": 2.0,
-        "color_rate": 10.0
-    },
-    "gupta_stationery": {
-        "name": "Gupta Stationery and Xerox",
-        "upi_id": "akash@upi",
+        "name": "Dristi Online Centre",
+        "upi_id": "Q159163070@ybl",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
@@ -26,12 +20,6 @@ SHOPS = {
         "upi_id": "Q159163070@ybl",
         "bw_rate": 2.0,
         "color_rate": 10.0
-    },
-    "sharma_cyber": {
-        "name": "Sharma Cyber Cafe",
-        "upi_id": "sharmacyber@ybl",
-        "bw_rate": 3.0,
-        "color_rate": 8.0
     }
 }
 
@@ -164,8 +152,8 @@ HTML_TEMPLATE = """
                 const cleanName = encodeURIComponent(shopData.name.trim());
                 const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
 
-                // Standard NPCI minimalist deep link (No custom reference or note interference)
-                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR`;
+                // Direct Payee Open-Intent: Amount app ke andar enter hoga taaki fraud filters bypass ho sakein
+                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&cu=INR`;
                 window.location.href = upiLink;
             } else {
                 alert("Error sending file to server.");
