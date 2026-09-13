@@ -152,8 +152,8 @@ HTML_TEMPLATE = """
                 const cleanName = encodeURIComponent(shopData.name.trim());
                 const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
 
-                // Direct Payee Open-Intent: Amount app ke andar enter hoga taaki fraud filters bypass ho sakein
-                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&cu=INR`;
+                // Exact NPCI intent format with prefilled calculated amount
+                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR`;
                 window.location.href = upiLink;
             } else {
                 alert("Error sending file to server.");
