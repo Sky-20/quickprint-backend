@@ -10,13 +10,13 @@ FILES_STORAGE = {}
 
 SHOPS = {
     "default": {
-        "name": "Dristi Online Centre",
+        "name": "Dristi Online Center",
         "upi_id": "Q159163070@ybl",
         "bw_rate": 2.0,
         "color_rate": 10.0
     },
     "ranjan_stationery": {
-        "name": "Dristi Online Centre",
+        "name": "Dristi Online Center",
         "upi_id": "Q159163070@ybl",
         "bw_rate": 2.0,
         "color_rate": 10.0
