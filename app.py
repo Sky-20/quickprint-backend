@@ -30,6 +30,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ shop_data.name }} - Self Print</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
@@ -45,9 +46,8 @@ HTML_TEMPLATE = """
         .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; border-top: 1px solid #ddd; padding-top: 6px; }
         .btn { background: #2563eb; color: white; border: none; border-radius: 8px; width: 100%; padding: 14px; font-size: 16px; font-weight: bold; cursor: pointer; }
         .btn:disabled { background: #93c5fd; }
-        #status-card { display: none; }
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #qr-card { display: none; }
+        #qrcode { display: flex; justify-content: center; margin: 20px 0; }
         .creator-badge { margin-top: 22px; padding-top: 12px; border-top: 1px dashed #cbd5e1; font-size: 12px; color: #64748b; line-height: 1.4; }
     </style>
 </head>
@@ -81,7 +81,7 @@ HTML_TEMPLATE = """
             <div class="total-row"><span>Grand Total:</span><span id="bill-total" style="color: #2563eb;">₹{{ "%.2f"|format(shop_data.bw_rate) }}</span></div>
         </div>
 
-        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Pay via UPI & Request Print</button>
+        <button class="btn" id="pay-btn" onclick="startPayAndPrint()">Generate Payment QR & Print</button>
 
         <div class="creator-badge">
             Engineered & Built by <b style="color: #0f172a;">Akash Verma</b><br>
@@ -89,11 +89,15 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <div class="card" id="status-card">
-        <div class="spinner"></div>
-        <h2 style="color: #0f172a; margin-bottom: 6px;">Processing at Counter</h2>
-        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Payment requested. Please collect your document from the printer once confirmed.</p>
-        <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px;">Print Another Document</button>
+    <div class="card" id="qr-card">
+        <h2 style="color: #0f172a;">Scan to Pay</h2>
+        <p style="color: #64748b; font-size: 14px; margin: 4px 0 16px 0;">Scan using any UPI App (PhonePe, GPay, Paytm)</p>
+        
+        <div id="qrcode"></div>
+        <h3 id="display-amount" style="color: #2563eb; margin: 10px 0;"></h3>
+
+        <p style="color: #64748b; font-size: 12px; line-height: 1.4;">Payment complete hote hi print out counter par nikal aayega.</p>
+        <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px; margin-top: 10px;">Print Another Document</button>
     </div>
 
     <script>
@@ -147,18 +151,25 @@ HTML_TEMPLATE = """
 
             if (data.status === "success") {
                 document.getElementById('upload-card').style.display = 'none';
-                document.getElementById('status-card').style.display = 'block';
+                document.getElementById('qr-card').style.display = 'block';
+                document.getElementById('display-amount').innerText = `Amount: ₹${total.toFixed(2)}`;
 
                 const cleanName = encodeURIComponent(shopData.name.trim());
                 const cleanUpi = encodeURIComponent(shopData.upi_id.trim());
+                const upiString = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR`;
 
-                // Exact NPCI intent format with prefilled calculated amount
-                const upiLink = `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${total.toFixed(2)}&cu=INR`;
-                window.location.href = upiLink;
+                new QRCode(document.getElementById("qrcode"), {
+                    text: upiString,
+                    width: 200,
+                    height: 200,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
             } else {
                 alert("Error sending file to server.");
                 btn.disabled = false;
-                btn.innerText = "Pay via UPI & Request Print";
+                btn.innerText = "Generate Payment QR & Print";
             }
         }
     </script>
