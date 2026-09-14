@@ -246,7 +246,6 @@ def verify_payment():
     rzp_signature = data.get('razorpay_signature')
 
     try:
-        # Verify Razorpay signature
         razorpay_client.utility.verify_payment_signature({
             'razorpay_order_id': rzp_order_id,
             'razorpay_payment_id': rzp_payment_id,
@@ -262,6 +261,28 @@ def verify_payment():
     except Exception as e:
         print("Verification error:", e)
         return jsonify({"status": "error", "message": f"Verification error: {str(e)}"}), 400
+
+@app.route('/api/razorpay-webhook', methods=['POST'])
+def razorpay_webhook():
+    payload = request.data.decode('utf-8')
+    signature = request.headers.get('X-Razorpay-Signature')
+    
+    try:
+        razorpay_client.utility.verify_webhook_signature(payload, signature, RAZORPAY_KEY_SECRET)
+        event_data = request.json
+        if event_data.get('event') in ['payment.captured', 'order.paid']:
+            payload_entity = event_data.get('payload', {}).get('payment', {}).get('entity', {})
+            order_id = payload_entity.get('order_id')
+            if order_id:
+                with sqlite3.connect(DB_PATH) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE jobs SET status = 'paid' WHERE order_id = ?", (order_id,))
+                    conn.commit()
+                print(f"Webhook: Order {order_id} marked as PAID")
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        print("Webhook verification error:", e)
+        return jsonify({"status": "failed", "error": str(e)}), 400
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
