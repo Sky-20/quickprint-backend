@@ -1,9 +1,16 @@
 import os
 import uuid
 import datetime
+import razorpay
 from flask import Flask, request, jsonify, render_template_string, Response
 
 app = Flask(__name__)
+
+# Razorpay Credentials
+RAZORPAY_KEY_ID = "rzp_test_TS2Vq0G1hlAz2x"
+RAZORPAY_KEY_SECRET = "1Ur7xBBw5LyO1d2H3RqSWVho"
+
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 PRINT_JOBS = []
 FILES_STORAGE = {}
@@ -30,6 +37,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ shop_data.name }} - Self Print</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); width: 100%; max-width: 420px; padding: 24px; box-sizing: border-box; text-align: center; }
@@ -90,9 +98,9 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="card" id="status-card">
-        <div class="spinner"></div>
+        <div class="spinner" id="status-spinner"></div>
         <h2 id="status-title" style="color: #0f172a; margin-bottom: 6px;">Processing Payment</h2>
-        <p id="status-desc" style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Verifying payment at counter...</p>
+        <p id="status-desc" style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">Awaiting confirmation from bank...</p>
         <button class="btn" onclick="location.reload()" style="background: #0f172a; padding: 12px; font-size: 14px;">Print Another Document</button>
     </div>
 
@@ -104,6 +112,7 @@ HTML_TEMPLATE = """
             bw_rate: parseFloat("{{ shop_data.bw_rate }}"),
             color_rate: parseFloat("{{ shop_data.color_rate }}")
         };
+        const rzpKey = "{{ razorpay_key_id }}";
         let selectedFile = null;
 
         function handleFile(input) {
@@ -132,7 +141,7 @@ HTML_TEMPLATE = """
 
             const btn = document.getElementById('pay-btn');
             btn.disabled = true;
-            btn.innerText = "Submitting Job...";
+            btn.innerText = "Initiating Order...";
 
             const total = calculateTotal();
             const formData = new FormData();
@@ -146,16 +155,51 @@ HTML_TEMPLATE = """
             const data = await res.json();
 
             if (data.status === "success") {
-                document.getElementById('upload-card').style.display = 'none';
-                document.getElementById('status-card').style.display = 'block';
+                const options = {
+                    "key": rzpKey,
+                    "amount": data.order_amount,
+                    "currency": "INR",
+                    "name": shopData.name,
+                    "description": "Self-Service Print Job",
+                    "order_id": data.order_id,
+                    "handler": async function (response){
+                        document.getElementById('upload-card').style.display = 'none';
+                        document.getElementById('status-card').style.display = 'block';
 
-                // Simulate gateway payment confirmation
-                await fetch(`/api/confirm-payment/${data.job_id}`, { method: "POST" });
+                        const verifyRes = await fetch("/api/verify-payment", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                job_id: data.job_id,
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature
+                            })
+                        });
 
-                document.getElementById('status-title').innerText = "Payment Verified";
-                document.getElementById('status-desc').innerText = "Soundbox announcement triggered. Document printing now.";
+                        const verifyData = await verifyRes.json();
+                        if (verifyData.status === "success") {
+                            document.getElementById('status-spinner').style.display = 'none';
+                            document.getElementById('status-title').innerText = "Payment Successful";
+                            document.getElementById('status-desc').innerText = "Announcement made. Your document is printing now.";
+                        } else {
+                            document.getElementById('status-title').innerText = "Verification Failed";
+                            document.getElementById('status-desc').innerText = "Contact shop owner.";
+                        }
+                    },
+                    "modal": {
+                        "ondismiss": function(){
+                            btn.disabled = false;
+                            btn.innerText = "Pay & Instant Print";
+                        }
+                    },
+                    "theme": { "color": "#2563eb" }
+                };
+
+                const rzp = new Razorpay(options);
+                rzp.open();
             } else {
-                alert("Submission failed. Try again.");
+                alert("Order initiation failed. Try again.");
                 btn.disabled = false;
                 btn.innerText = "Pay & Instant Print";
             }
@@ -176,7 +220,12 @@ def add_cors_headers(response):
 def home():
     shop_param = request.args.get('shop', 'default').lower()
     shop_info = SHOPS.get(shop_param, SHOPS['default'])
-    return render_template_string(HTML_TEMPLATE, shop_id=shop_param, shop_data=shop_info)
+    return render_template_string(
+        HTML_TEMPLATE,
+        shop_id=shop_param,
+        shop_data=shop_info,
+        razorpay_key_id=RAZORPAY_KEY_ID
+    )
 
 @app.route('/api/submit-job', methods=['POST'])
 def submit_job():
@@ -192,8 +241,19 @@ def submit_job():
         "content": file.read()
     }
 
+    # Razorpay expects amount in paise
+    amount_in_paise = int(amount * 100)
+    order_data = {
+        "amount": amount_in_paise,
+        "currency": "INR",
+        "receipt": f"rcpt_{job_id[:8]}"
+    }
+
+    razorpay_order = razorpay_client.order.create(data=order_data)
+
     PRINT_JOBS.append({
         "job_id": job_id,
+        "order_id": razorpay_order['id'],
         "shop_id": shop_id,
         "filename": file.filename,
         "color_mode": color_mode,
@@ -203,15 +263,37 @@ def submit_job():
         "status": "pending_payment"
     })
 
-    return jsonify({"status": "success", "job_id": job_id})
+    return jsonify({
+        "status": "success",
+        "job_id": job_id,
+        "order_id": razorpay_order['id'],
+        "order_amount": amount_in_paise
+    })
 
-@app.route('/api/confirm-payment/<job_id>', methods=['POST'])
-def confirm_payment(job_id):
-    for job in PRINT_JOBS:
-        if job['job_id'] == job_id:
-            job['status'] = 'paid'
-            return jsonify({"status": "success", "message": "Payment verified"})
-    return jsonify({"status": "error", "message": "Job not found"}), 404
+@app.route('/api/verify-payment', methods=['POST'])
+def verify_payment():
+    data = request.json
+    job_id = data.get('job_id')
+    rzp_order_id = data.get('razorpay_order_id')
+    rzp_payment_id = data.get('razorpay_payment_id')
+    rzp_signature = data.get('razorpay_signature')
+
+    try:
+        razorpay_client.utility.verify_payment_signature({
+            'razorpay_order_id': rzp_order_id,
+            'razorpay_payment_id': rzp_payment_id,
+            'razorpay_signature': rzp_signature
+        })
+
+        for job in PRINT_JOBS:
+            if job['job_id'] == job_id:
+                job['status'] = 'paid'
+                return jsonify({"status": "success", "message": "Payment verified"})
+
+        return jsonify({"status": "error", "message": "Job not found"}), 404
+
+    except razorpay.errors.SignatureVerificationError:
+        return jsonify({"status": "error", "message": "Signature verification failed"}), 400
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
