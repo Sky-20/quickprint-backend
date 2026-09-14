@@ -11,7 +11,7 @@ RAZORPAY_KEY_ID = "rzp_test_TS2Vq0G1hlAz2x"
 RAZORPAY_KEY_SECRET = "1Ur7xBBw5LyO1d2H3RqSWVho"
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
-DB_PATH = "kiosk.db"
+DB_PATH = "/tmp/kiosk.db"
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -100,8 +100,8 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="card" id="status-card">
-        <h2 style="color: #0f172a;" id="status-title">Payment Successful</h2>
-        <p style="color: #64748b; font-size: 14px;" id="status-desc">Announcement made. Printing now...</p>
+        <h2 style="color: #0f172a;" id="status-title">Verifying Payment...</h2>
+        <p style="color: #64748b; font-size: 14px;" id="status-desc">Please wait while we confirm your print job.</p>
         <button class="btn" onclick="location.reload()" style="background: #0f172a; margin-top: 15px;">Print Another</button>
     </div>
 
@@ -158,11 +158,16 @@ HTML_TEMPLATE = """
                     "currency": "INR",
                     "name": "QuickPrint",
                     "order_id": data.order_id,
+                    "prefill": {
+                        "name": "Customer",
+                        "email": "customer@quickprint.local",
+                        "contact": "9999999999"
+                    },
                     "handler": async function (response){
                         document.getElementById('upload-card').style.display = 'none';
                         document.getElementById('status-card').style.display = 'block';
 
-                        await fetch("/api/verify-payment", {
+                        const verifyRes = await fetch("/api/verify-payment", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
@@ -172,6 +177,15 @@ HTML_TEMPLATE = """
                                 razorpay_signature: response.razorpay_signature
                             })
                         });
+
+                        const verifyData = await verifyRes.json();
+                        if (verifyData.status === "success") {
+                            document.getElementById('status-title').innerText = "Payment Verified!";
+                            document.getElementById('status-desc').innerText = "Print sent to counter printer.";
+                        } else {
+                            document.getElementById('status-title').innerText = "Payment Error";
+                            document.getElementById('status-desc').innerText = verifyData.message || "Failed to verify signature.";
+                        }
                     },
                     "modal": {
                         "ondismiss": function(){
@@ -183,7 +197,7 @@ HTML_TEMPLATE = """
                 };
                 new Razorpay(options).open();
             } else {
-                alert("Failed to create order.");
+                alert("Failed to create order: " + (data.message || "Unknown error"));
                 btn.disabled = false;
                 btn.innerText = "Pay & Instant Print";
             }
@@ -201,42 +215,53 @@ def home():
 
 @app.route('/api/submit-job', methods=['POST'])
 def submit_job():
-    shop_id = request.form.get('shop_id', 'default').lower()
-    copies = int(request.form.get('copies', 1))
-    amount = float(request.form.get('amount', 2.0))
-    file = request.files.get('file')
+    try:
+        shop_id = request.form.get('shop_id', 'default').lower()
+        copies = int(request.form.get('copies', 1))
+        amount = float(request.form.get('amount', 2.0))
+        file = request.files.get('file')
 
-    job_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{job_id}_{file.filename}")
-    file.save(file_path)
+        job_id = str(uuid.uuid4())
+        file_path = os.path.join(UPLOAD_DIR, f"{job_id}_{file.filename}")
+        file.save(file_path)
 
-    amount_in_paise = int(amount * 100)
-    order_data = {"amount": amount_in_paise, "currency": "INR", "receipt": f"r_{job_id[:8]}"}
-    razorpay_order = razorpay_client.order.create(data=order_data)
+        amount_in_paise = int(amount * 100)
+        order_data = {"amount": amount_in_paise, "currency": "INR", "receipt": f"r_{job_id[:8]}"}
+        razorpay_order = razorpay_client.order.create(data=order_data)
 
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     (job_id, razorpay_order['id'], shop_id, file.filename, copies, amount, "pending_payment"))
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (job_id, razorpay_order['id'], shop_id, file.filename, copies, amount, "pending_payment"))
 
-    return jsonify({"status": "success", "job_id": job_id, "order_id": razorpay_order['id'], "order_amount": amount_in_paise})
+        return jsonify({"status": "success", "job_id": job_id, "order_id": razorpay_order['id'], "order_amount": amount_in_paise})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/verify-payment', methods=['POST'])
 def verify_payment():
-    data = request.json
+    data = request.json or {}
     job_id = data.get('job_id')
+    rzp_order_id = data.get('razorpay_order_id')
+    rzp_payment_id = data.get('razorpay_payment_id')
+    rzp_signature = data.get('razorpay_signature')
+
     try:
+        # Verify Razorpay signature
         razorpay_client.utility.verify_payment_signature({
-            'razorpay_order_id': data.get('razorpay_order_id'),
-            'razorpay_payment_id': data.get('razorpay_payment_id'),
-            'razorpay_signature': data.get('razorpay_signature')
+            'razorpay_order_id': rzp_order_id,
+            'razorpay_payment_id': rzp_payment_id,
+            'razorpay_signature': rzp_signature
         })
 
         with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("UPDATE jobs SET status = 'paid' WHERE job_id = ?", (job_id,))
+            cursor = conn.cursor()
+            cursor.execute("UPDATE jobs SET status = 'paid' WHERE job_id = ?", (job_id,))
+            conn.commit()
 
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "Payment verified and status updated to paid"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        print("Verification error:", e)
+        return jsonify({"status": "error", "message": f"Verification error: {str(e)}"}), 400
 
 @app.route('/api/get-pending-jobs')
 def get_pending_jobs():
@@ -263,6 +288,7 @@ def download_file(job_id):
 def complete_job(job_id):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+        conn.commit()
     for fn in os.listdir(UPLOAD_DIR):
         if fn.startswith(f"{job_id}_"):
             try:
