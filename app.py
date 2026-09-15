@@ -7,8 +7,8 @@ from flask import Flask, request, jsonify, render_template_string, Response
 
 app = Flask(__name__)
 
-RAZORPAY_KEY_ID = "rzp_test_TS2Vq0G1hlAz2x"
-RAZORPAY_KEY_SECRET = "1Ur7xBBw5LyO1d2H3RqSWVho"
+RAZORPAY_KEY_ID = "rzp_live_TcLvuIP8zruBPY"
+RAZORPAY_KEY_SECRET = "KOCsMWsd0g6Qk8SR2aZEDNV1"
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 DB_PATH = "/tmp/kiosk.db"
